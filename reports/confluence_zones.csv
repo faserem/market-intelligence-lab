@@ -1,0 +1,6 @@
+zone_type,zone_low,zone_high,position_vs_price,distance_to_zone_pct,levels_inside,total_touches,avg_score
+mixed,61683.86,65667.29,price_inside_zone,1.21,12,24,66.0
+resistance,66381.13,68642.46,above_price,2.31,5,10,64.0
+support,59043.36,60863.45,below_price,6.19,5,13,63.8
+resistance,69346.55,71891.94,above_price,6.88,4,10,60.0
+mixed,52872.96,53614.06,below_price,17.36,2,6,59.0

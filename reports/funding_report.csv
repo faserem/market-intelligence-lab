@@ -1,0 +1,2 @@
+symbol,latest_funding,avg_funding_3,avg_funding_10,avg_funding_30,funding_score,funding_state,notes
+BTCUSDT,,,,,0,UNAVAILABLE,Funding no disponible desde este entorno. Motivo: 451 Client Error:  for url: https://fapi.binance.com/fapi/v1/fundingRate?symbol=BTCUSDT&limit=100
