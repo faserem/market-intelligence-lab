@@ -63,8 +63,6 @@ momentum_20 = ((close_1 - close_20) / close_20) * 100
 bull_score = 0
 bear_score = 0
 
-# Momentum
-
 if momentum_5 > 0:
     bull_score += 15
 else:
@@ -74,8 +72,6 @@ if momentum_20 > 0:
     bull_score += 25
 else:
     bear_score += 25
-
-# Distancias
 
 if not nearest_support.empty:
     support_dist = nearest_support.iloc[0]["distance_pct"]
@@ -94,13 +90,31 @@ if not nearest_resistance.empty:
 # =====================================
 
 if bull_score > bear_score + 15:
-    pressure = "BULLISH"
+    pressure_state = "BULLISH"
 
 elif bear_score > bull_score + 15:
-    pressure = "BEARISH"
+    pressure_state = "BEARISH"
 
 else:
-    pressure = "NEUTRAL"
+    pressure_state = "NEUTRAL"
+
+# =====================================
+# EXPORT
+# =====================================
+
+report = pd.DataFrame([{
+    "current_price": current_price,
+    "momentum_5": momentum_5,
+    "momentum_20": momentum_20,
+    "bull_score": bull_score,
+    "bear_score": bear_score,
+    "pressure_state": pressure_state
+}])
+
+report.to_csv(
+    "reports/market_pressure_report.csv",
+    index=False
+)
 
 # =====================================
 # OUTPUT
@@ -108,7 +122,7 @@ else:
 
 print("\n")
 print("=" * 70)
-print("MARKET PRESSURE ENGINE v0.1")
+print("MARKET PRESSURE ENGINE v0.2")
 print("=" * 70)
 
 print(f"Precio actual: {current_price:,.2f}")
@@ -118,7 +132,7 @@ print(f"Momentum 20 días: {momentum_20:.2f}%")
 print("\nBull Score:", bull_score)
 print("Bear Score:", bear_score)
 
-print("\nPresión detectada:", pressure)
+print("\nPresión detectada:", pressure_state)
 
 if not nearest_support.empty:
     print(
@@ -135,3 +149,6 @@ if not nearest_resistance.empty:
         "-",
         round(nearest_resistance.iloc[0]["zone_high"],2)
     )
+
+print("\nArchivo generado:")
+print("reports/market_pressure_report.csv")

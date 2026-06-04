@@ -1,4 +1,22 @@
 import pandas as pd
+import os
+
+# =====================================
+# CONFIG
+# =====================================
+
+MANUAL_PRICE = None
+
+CONFIG_PATH = "reports/backtest_config.csv"
+
+if os.path.exists(CONFIG_PATH):
+    config = pd.read_csv(CONFIG_PATH)
+
+    if "manual_price" in config.columns:
+        value = config.iloc[0]["manual_price"]
+
+        if pd.notna(value):
+            MANUAL_PRICE = float(value)
 
 # =====================================
 # DATOS
@@ -12,7 +30,14 @@ for col in ["Open", "High", "Low", "Close", "Volume"]:
 
 btc = btc.dropna()
 
-current_price = btc["Close"].iloc[-1]
+csv_price = btc["Close"].iloc[-1]
+
+if MANUAL_PRICE is not None:
+    current_price = MANUAL_PRICE
+    price_source = "MANUAL_PRICE"
+else:
+    current_price = csv_price
+    price_source = "CSV_CLOSE"
 
 # =====================================
 # BUSCAR ZONA ACTUAL
@@ -63,7 +88,9 @@ else:
 # =====================================
 
 report = pd.DataFrame([{
+    "price_source": price_source,
     "current_price": current_price,
+    "csv_close_price": csv_price,
     "zone_low": zone_low,
     "zone_high": zone_high,
     "position_pct": position_pct,
@@ -81,10 +108,12 @@ report.to_csv(
 
 print("\n")
 print("=" * 70)
-print("ZONE POSITION ENGINE v0.1")
+print("ZONE POSITION ENGINE v0.3")
 print("=" * 70)
 
-print(f"Precio actual: {current_price:,.2f}")
+print(f"Fuente de precio: {price_source}")
+print(f"Precio analizado: {current_price:,.2f}")
+print(f"Último cierre CSV: {csv_price:,.2f}")
 
 if current_zone is not None:
 
