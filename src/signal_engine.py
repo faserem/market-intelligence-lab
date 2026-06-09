@@ -1,239 +1,168 @@
-import glob
+import os
 import pandas as pd
 import numpy as np
 
-# =========================
-# CONFIG
-# =========================
+# ============================================================
+# SIGNAL ENGINE FINAL
+# Setup operativo:
+# OI_SHORT_COVERING_FADE
+#
+# Entrada:
+# Precio sube + Open Interest baja
+#
+# Salida sugerida:
+# TIME EXIT 360 minutos
+#
+# Basado en:
+# - moe_fast_signals.csv
+# - time_exit_study.csv
+# ============================================================
+
+DATA_FILE = "data/moe_dataset_1m.csv"
+
+OUT_CURRENT = "reports/moe_current_signal.csv"
+OUT_HISTORY = "reports/signal_history.csv"
 
 SYMBOL = "BTCUSDT"
 
-FILES = glob.glob("data/tardis/binance-futures_derivative_ticker_*_BTCUSDT.csv")
+TIME_EXIT_MINUTES = 360
 
-OUT_SIGNAL = "reports/current_signal_report.csv"
-OUT_HISTORY = "reports/signal_history.csv"
+# Config HIGH_CONF ganadora
+P15 = 0.20
+OI15 = -0.08
 
-TARGET_1 = 0.5
-TARGET_2 = 1.0
-STOP = 0.5
+P5 = 0.08
+OI5 = -0.03
 
-if not FILES:
-    raise FileNotFoundError("No encontré archivos derivative_ticker en data/tardis/")
+P30 = 0.30
+OI30 = -0.10
 
-# =========================
-# LOAD OI DATA
-# =========================
+COOLDOWN_MINUTES = 30
 
-dfs = []
+EXPECTED_PF = 3.39
+EXPECTED_WR = 67.40
+EXPECTED_TRADES = 181
 
-for file in FILES:
-    df = pd.read_csv(file)
-    df["source_file"] = file
-    dfs.append(df)
+os.makedirs("reports", exist_ok=True)
 
-raw = pd.concat(dfs, ignore_index=True)
-
-raw["timestamp"] = pd.to_datetime(raw["timestamp"], unit="us")
-raw = raw.dropna(subset=["open_interest", "mark_price"])
-
-df = (
-    raw
-    .set_index("timestamp")
-    .sort_index()
-    .resample("1min")
-    .agg({
-        "open_interest": "last",
-        "mark_price": "last",
-        "funding_rate": "last"
-    })
-)
-
-df = df.dropna()
-
-# =========================
-# FEATURES
-# =========================
-
-for w in [5, 15, 30]:
-    df[f"price_change_{w}m"] = df["mark_price"].pct_change(w) * 100
-    df[f"oi_change_{w}m"] = df["open_interest"].pct_change(w) * 100
-
-df = df.dropna()
+df = pd.read_csv(DATA_FILE)
+df["timestamp"] = pd.to_datetime(df["timestamp"])
+df = df.sort_values("timestamp").reset_index(drop=True)
 
 latest = df.iloc[-1]
-latest_time = df.index[-1]
 
 price = latest["mark_price"]
 
-pc5 = latest["price_change_5m"]
-oi5 = latest["oi_change_5m"]
-
-pc15 = latest["price_change_15m"]
-oi15 = latest["oi_change_15m"]
-
-pc30 = latest["price_change_30m"]
-oi30 = latest["oi_change_30m"]
-
-# =========================
-# SIGNAL LOGIC
-# =========================
-
-bull_score = 0
-bear_score = 0
+bear = 0
 reasons = []
-setup = "NONE"
-decision = "NO_TRADE"
 
-# Setup principal descubierto:
-# Precio sube y OI baja.
-# Posible short covering agotándose.
+if latest["price_change_15m"] >= P15 and latest["oi_change_15m"] <= OI15:
+    bear += 45
+    reasons.append("15m precio sube + OI baja")
 
-if pc15 > 0.10 and oi15 < -0.03:
-    bear_score += 45
-    setup = "OI_SHORT_COVERING_FADE"
-    reasons.append(f"15m: precio +{pc15:.2f}% y OI {oi15:.2f}%")
+if latest["price_change_5m"] >= P5 and latest["oi_change_5m"] <= OI5:
+    bear += 15
+    reasons.append("5m confirma")
 
-if pc5 > 0.05 and oi5 < -0.02:
-    bear_score += 15
-    reasons.append(f"5m confirma: precio +{pc5:.2f}% y OI {oi5:.2f}%")
+if latest["price_change_30m"] >= P30 and latest["oi_change_30m"] <= OI30:
+    bear += 20
+    reasons.append("30m confirma")
 
-if pc30 > 0.15 and oi30 < -0.05:
-    bear_score += 20
-    reasons.append(f"30m confirma: precio +{pc30:.2f}% y OI {oi30:.2f}%")
-
-# Posible setup long futuro, todavía no validado como principal.
-if pc15 < -0.15 and oi15 < -0.05:
-    bull_score += 35
-    reasons.append(f"15m posible rebote: precio {pc15:.2f}% y OI {oi15:.2f}%")
-
-if pc5 < -0.08 and oi5 < -0.03:
-    bull_score += 15
-    reasons.append(f"5m confirma posible rebote: precio {pc5:.2f}% y OI {oi5:.2f}%")
-
-# =========================
-# DECISION
-# =========================
-
-if bear_score >= 60 and bear_score >= bull_score + 25:
+if bear >= 60:
     decision = "SHORT"
-    confidence = min(100, bear_score)
-
-elif bull_score >= 65 and bull_score >= bear_score + 25:
-    decision = "LONG"
-    confidence = min(100, bull_score)
-
-elif max(bull_score, bear_score) >= 40:
-    decision = "WATCH"
-    confidence = max(bull_score, bear_score)
-
-else:
-    decision = "NO_TRADE"
-    confidence = max(bull_score, bear_score)
-
-# =========================
-# TRADE PLAN
-# =========================
-
-if decision == "SHORT":
+    setup = "OI_SHORT_COVERING_FADE"
+    confidence = bear
     entry = price
-    stop_price = entry * (1 + STOP / 100)
-    target_1 = entry * (1 - TARGET_1 / 100)
-    target_2 = entry * (1 - TARGET_2 / 100)
 
-elif decision == "LONG":
-    entry = price
-    stop_price = entry * (1 - STOP / 100)
-    target_1 = entry * (1 + TARGET_1 / 100)
-    target_2 = entry * (1 + TARGET_2 / 100)
-
-else:
-    entry = np.nan
-    stop_price = np.nan
+    # Ya no usamos TP/SL principal. La salida base es por tiempo.
+    stop = np.nan
     target_1 = np.nan
     target_2 = np.nan
 
-# =========================
-# REPORT
-# =========================
+    exit_plan = f"TIME_EXIT_{TIME_EXIT_MINUTES}_MIN"
+
+else:
+    decision = "NO_TRADE"
+    setup = "NONE"
+    confidence = bear
+    entry = np.nan
+    stop = np.nan
+    target_1 = np.nan
+    target_2 = np.nan
+    exit_plan = "NONE"
 
 report = pd.DataFrame([{
-    "timestamp": latest_time,
+    "timestamp": latest["timestamp"],
     "symbol": SYMBOL,
-    "setup": setup,
     "decision": decision,
+    "setup": setup,
     "confidence": confidence,
     "price": price,
     "entry": entry,
-    "stop": stop_price,
+    "stop": stop,
     "target_1": target_1,
     "target_2": target_2,
-    "bull_score": bull_score,
-    "bear_score": bear_score,
-    "price_change_5m": pc5,
-    "oi_change_5m": oi5,
-    "price_change_15m": pc15,
-    "oi_change_15m": oi15,
-    "price_change_30m": pc30,
-    "oi_change_30m": oi30,
-    "reasons": " | ".join(reasons)
+    "exit_plan": exit_plan,
+    "time_exit_minutes": TIME_EXIT_MINUTES,
+    "expected_pf": EXPECTED_PF,
+    "expected_win_rate": EXPECTED_WR,
+    "expected_trades": EXPECTED_TRADES,
+    "price_change_5m": latest["price_change_5m"],
+    "oi_change_5m": latest["oi_change_5m"],
+    "price_change_15m": latest["price_change_15m"],
+    "oi_change_15m": latest["oi_change_15m"],
+    "price_change_30m": latest["price_change_30m"],
+    "oi_change_30m": latest["oi_change_30m"],
+    "reasons": " | ".join(reasons) if reasons else "Sin señal suficiente"
 }])
 
-report.to_csv(OUT_SIGNAL, index=False)
+report.to_csv(OUT_CURRENT, index=False)
 
-# Agregar al historial sólo si hay señal real o watch
-if decision in ["SHORT", "LONG", "WATCH"]:
-    try:
+if decision != "NO_TRADE":
+    if os.path.exists(OUT_HISTORY):
         old = pd.read_csv(OUT_HISTORY)
         history = pd.concat([old, report], ignore_index=True)
         history = history.drop_duplicates(subset=["timestamp", "decision", "setup"])
-    except FileNotFoundError:
+    else:
         history = report.copy()
 
     history.to_csv(OUT_HISTORY, index=False)
 
-# =========================
-# OUTPUT
-# =========================
-
 print("\n" + "=" * 70)
-print("SIGNAL ENGINE v0.1")
+print("SIGNAL ENGINE FINAL")
 print("=" * 70)
 
 print(f"Símbolo: {SYMBOL}")
-print(f"Timestamp: {latest_time}")
+print(f"Timestamp: {latest['timestamp']}")
 print(f"Precio: {price:,.2f}")
-
-print("\nSetup:")
-print(setup)
 
 print("\nDecisión:")
 print(decision)
 
+print("\nSetup:")
+print(setup)
+
 print(f"\nConfianza: {confidence}/100")
 
-print("\nScores:")
-print(f"Bull: {bull_score}")
-print(f"Bear: {bear_score}")
-
-if decision in ["SHORT", "LONG"]:
-    print("\nPlan:")
-    print(f"Entrada: {entry:,.2f}")
-    print(f"Stop: {stop_price:,.2f}")
-    print(f"Target 1: {target_1:,.2f}")
-    print(f"Target 2: {target_2:,.2f}")
-
 print("\nMétricas:")
-print(f"Price 5m: {pc5:.2f}% | OI 5m: {oi5:.2f}%")
-print(f"Price 15m: {pc15:.2f}% | OI 15m: {oi15:.2f}%")
-print(f"Price 30m: {pc30:.2f}% | OI 30m: {oi30:.2f}%")
+print(f"Price 5m: {latest['price_change_5m']:.2f}% | OI 5m: {latest['oi_change_5m']:.2f}%")
+print(f"Price 15m: {latest['price_change_15m']:.2f}% | OI 15m: {latest['oi_change_15m']:.2f}%")
+print(f"Price 30m: {latest['price_change_30m']:.2f}% | OI 30m: {latest['oi_change_30m']:.2f}%")
+
+if decision == "SHORT":
+    print("\nPlan:")
+    print(f"Entrada SHORT: {entry:,.2f}")
+    print(f"Salida: cerrar a los {TIME_EXIT_MINUTES} minutos")
+    print(f"PF esperado histórico: {EXPECTED_PF}")
+    print(f"Win rate esperado histórico: {EXPECTED_WR}%")
 
 print("\nRazones:")
-if reasons:
-    for r in reasons:
-        print(f"- {r}")
-else:
-    print("- Sin razones suficientes.")
+for r in reasons:
+    print(f"- {r}")
+
+if not reasons:
+    print("- Sin señal suficiente.")
 
 print("\nArchivos generados:")
-print(OUT_SIGNAL)
+print(OUT_CURRENT)
 print(OUT_HISTORY)
