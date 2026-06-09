@@ -1,0 +1,10 @@
+# Tardis
+data/tardis/
+data/tardis/raw/
+
+# datasets generados
+*.csv
+*.gz
+
+# excepto reportes
+!reports/*.csv

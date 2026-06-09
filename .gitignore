@@ -1,0 +1,4 @@
+data/tardis/
+data/tardis/raw/
+*.gz
+*.zip
